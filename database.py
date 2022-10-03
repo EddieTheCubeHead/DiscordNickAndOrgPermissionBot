@@ -3,7 +3,7 @@ import sqlite3
 from enum import Enum
 from typing import Optional, Union
 
-con = sqlite3.connect("bot_db.sqlite")
+con = sqlite3.connect("persistence/bot_db.sqlite")
 
 
 class DbEntryStatus(Enum):
