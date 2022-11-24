@@ -121,7 +121,7 @@ def is_bot_moderator():
 
 def is_admin_channel():
     async def predicate(ctx):
-        return ctx.channel.id == settings["admin_channel_id"]
+        return "admin_channel_id" in settings and ctx.channel.id == settings["admin_channel_id"]
     return commands.check(predicate)
 
 
