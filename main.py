@@ -46,11 +46,11 @@ def create_bot():
 bot = create_bot()
 
 
-if "settings.json" not in os.listdir():
-    with open("settings.json", "w", encoding="utf-8") as new_settings:
+if "settings.json" not in os.listdir("persistence"):
+    with open("persistence/settings.json", "w", encoding="utf-8") as new_settings:
         new_settings.writelines(("{", "}"))
 
-with open("settings.json", "r", encoding="utf-8") as settings_file:
+with open("persistence/settings.json", "r", encoding="utf-8") as settings_file:
     settings = json.load(settings_file)
 
 
@@ -275,7 +275,7 @@ async def _guild(ctx):
                        phrases["re_register_guild"].format(_PREFIX, "register guild", _PREFIX, "unregister guild"))
     else:
         settings["guild_id"] = ctx.guild.id
-        with open("settings.json", "w", encoding="utf-8") as settings_out:
+        with open("persistence/settings.json", "w", encoding="utf-8") as settings_out:
             json.dump(settings, settings_out)
         await ctx.send(phrases["guild_registered"])
 
@@ -284,7 +284,7 @@ async def _guild(ctx):
 @is_correct_guild()
 async def _admin(ctx):
     settings["admin_channel_id"] = ctx.channel.id
-    with open("settings.json", "w", encoding="utf-8") as settings_out:
+    with open("persistence/settings.json", "w", encoding="utf-8") as settings_out:
         json.dump(settings, settings_out)
     await ctx.send(phrases["admin_channel_registered"].format(ctx.channel.id))
 
@@ -303,7 +303,7 @@ async def _guild(ctx):
     else:
         settings.pop("guild_id")
         settings.pop("admin_channel_id")
-        with open("settings.json", "w", encoding="utf-8") as settings_out:
+        with open("persistence/settings.json", "w", encoding="utf-8") as settings_out:
             json.dump(settings, settings_out)
         await ctx.send(phrases["guild_unregistered"])
 
@@ -362,6 +362,8 @@ async def permissions(ctx, member: Member, org_role: Role, permission_level: per
 
 if __name__ == '__main__':
     database.init_databases()
-    with open("token.txt", "r", encoding="utf-8") as token_file:
-        token = token_file.readline()
+    token = os.getenv("TOKEN", None)
+    if token == None:
+        with open("token.txt", "r", encoding="utf-8") as token_file:
+            token = token_file.readline()
     bot.run(token)

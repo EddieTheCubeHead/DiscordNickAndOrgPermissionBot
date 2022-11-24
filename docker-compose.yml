@@ -1,0 +1,9 @@
+version: "3.7"
+services:
+  discord:
+    build: .
+    hostname: bot
+    environment:
+      - TOKEN=<insert secret here>
+    volumes:
+      - ./persistence:/app/persistence
