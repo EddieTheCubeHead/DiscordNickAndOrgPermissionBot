@@ -1,19 +1,20 @@
 import json
 import os
+from enum import Enum
+from typing import Any, Union, List, Optional
 
 import discord
-from discord import Member, Message, Role
-from discord.ext import commands
+from discord import Member, Message, Role, Client, Intents, Interaction, Guild
+from discord.app_commands import CommandTree, describe, Transformer, Choice
+import discord.app_commands
 
 import database
-
 
 _PREFIX = ";;"
 _USER_ROLE_NAMES = ("user",)  # all lowercase
 _ADMIN_ROLE_NAMES = ("admin",)  # all lowercase
 _MODERATOR_ROLE_NAMES = ("moderator",)  # all lowercase
 _PERMISSION_LEVEL_MAPPING = {1: "käyttäjä", 2: "moderaattori", 3: "admin"}
-
 
 default_permissions = discord.Permissions(
     add_reactions=True,
@@ -24,15 +25,28 @@ default_permissions = discord.Permissions(
     send_messages=True,
     speak=True,
     use_external_emojis=True,
-    use_slash_commands=True,
+    use_application_commands=True,
     use_voice_activation=True,
     view_channel=True,
     stream=True
 )
 
 
+_MY_GUILD = discord.Object(id=934732132973183016)
+
+
 with open("phrases.json", "r", encoding="utf-8") as phrase_file:
     phrases = json.load(phrase_file)
+
+
+class Bot(Client):
+    def __init__(self, description: str, intents: Intents):
+        super().__init__(description=description, intents=intents)
+        self.tree = CommandTree(self)
+
+    async def setup_hook(self):
+        self.tree.copy_global_to(guild=_MY_GUILD)
+        await self.tree.sync(guild=_MY_GUILD)
 
 
 def create_bot():
@@ -40,11 +54,10 @@ def create_bot():
 
     intents = discord.Intents.default()
     intents.members = True
-    return commands.Bot(command_prefix=_PREFIX, description=description, intents=intents)
+    return Bot(description=description, intents=intents)
 
 
 bot = create_bot()
-
 
 if "settings.json" not in os.listdir("persistence"):
     with open("persistence/settings.json", "w", encoding="utf-8") as new_settings:
@@ -58,8 +71,7 @@ with open("persistence/settings.json", "r", encoding="utf-8") as settings_file:
 async def on_message(message: Message):
     if message.author.bot:
         return
-    await bot.process_commands(message)
-    if message.guild is None and not message.content.startswith(_PREFIX):
+    if message.guild is None:
         await process_dm(message)
 
 
@@ -105,39 +117,38 @@ async def on_ready():
     print("Connected")
 
 
-def is_bot_admin():
-    async def predicate(ctx):
-        user = database.get_user(ctx.author.id)
-        return user and 3 in [user_permissions.permission_level for user_permissions in user.orgs]
-    return commands.check(predicate)
+# def is_bot_admin():
+#     async def predicate(ctx):
+#         user = database.get_user(ctx.author.id)
+#         return user and 3 in [user_permissions.permission_level for user_permissions in user.orgs]
+#     return commands.check(predicate)
+#
+#
+# def is_bot_moderator():
+#     async def predicate(ctx):
+#         user = database.get_user(ctx.author.id)
+#         return user and 2 in [user_permissions.permission_level for user_permissions in user.orgs]
+#     return commands.check(predicate)
+#
+#
+# def is_admin_channel():
+#     async def predicate(ctx):
+#         return "admin_channel_id" in settings and ctx.channel.id == settings["admin_channel_id"]
+#     return commands.check(predicate)
+#
+#
+# def is_correct_guild():
+#     async def predicate(ctx):
+#         if ctx.guild.id == settings["guild_id"]:
+#             return True
+#         else:
+#             await ctx.send(phrases["wrong_guild"] + " " +
+#                            phrases["re_register_guild"].format(_PREFIX, "register guild", _PREFIX, "unregister guild"))
+#     return commands.check(predicate)
 
 
-def is_bot_moderator():
-    async def predicate(ctx):
-        user = database.get_user(ctx.author.id)
-        return user and 2 in [user_permissions.permission_level for user_permissions in user.orgs]
-    return commands.check(predicate)
-
-
-def is_admin_channel():
-    async def predicate(ctx):
-        return "admin_channel_id" in settings and ctx.channel.id == settings["admin_channel_id"]
-    return commands.check(predicate)
-
-
-def is_correct_guild():
-    async def predicate(ctx):
-        if ctx.guild.id == settings["guild_id"]:
-            return True
-        else:
-            await ctx.send(phrases["wrong_guild"] + " " +
-                           phrases["re_register_guild"].format(_PREFIX, "register guild", _PREFIX, "unregister guild"))
-    return commands.check(predicate)
-
-
-@bot.command(aliases=["org", "addorg", "add"])
-@is_admin_channel()
-@commands.check_any(commands.has_guild_permissions(administrator=True), is_bot_admin())
+@bot.tree.command()
+@describe(org_name='The name of the org')  # TODO replace with translation
 async def add_org(ctx, *, org_name: str):
     if database.org_exists(org_name):
         return await ctx.send(phrases["org_exists"].format(org_name))
@@ -177,9 +188,8 @@ def ensure_author_permissions(author: Member, to_approve: database.User) -> bool
     return True
 
 
-@bot.command()
-@is_admin_channel()
-@commands.check_any(commands.has_guild_permissions(administrator=True), is_bot_admin(), is_bot_moderator())
+@bot.tree.command()
+@describe(member='The member to approve')  # TODO replace with translation
 async def approve(ctx, member: Member):
     user = await ensure_user_waiting_approval(ctx, member)
     if not user:
@@ -195,9 +205,8 @@ async def approve(ctx, member: Member):
     await member.send(phrases["approved_dm"].format(ctx.guild.name, user.orgs[0].org.name))
 
 
-@bot.command()
-@is_admin_channel()
-@commands.check_any(commands.has_guild_permissions(administrator=True), is_bot_admin(), is_bot_moderator())
+@bot.tree.command()
+@describe(member='The member to reject')  # TODO replace with translation
 async def reject(ctx, member: Member):
     user = await ensure_user_waiting_approval(ctx, member)
     if not user:
@@ -222,148 +231,131 @@ async def ensure_user_waiting_approval(ctx, member: Member) -> database.User:
         return user
 
 
-@bot.command()
-async def retry(ctx):
-    if ctx.message.guild:
-        return await ctx.send(phrases["dm_only"])
-    user = database.get_user(ctx.author.id)
+@bot.tree.command()
+async def retry(interaction: Interaction):
+    if interaction.message.guild:
+        return await interaction.response.send_message(phrases["dm_only"])
+    user = database.get_user(interaction.user.id)
     if user:
         database.delete_user(user)
-    database.add_user(ctx.author.id)
+    database.add_user(interaction.user.id)
     guild_name = bot.get_guild(settings['guild_id']).name
-    await ctx.author.send(phrases["name_query"].format(guild_name))
+    await interaction.response.send_message.send(phrases["name_query"].format(guild_name))
 
 
-@bot.command()
-async def join(ctx, member: Member, org: Role):
+@bot.tree.command()
+async def join(interaction: Interaction, member: Member, org: Role):
     user = database.get_user(member.id)
     if not user:
-        return await ctx.send(phrases["no_user_in_db"].format(member.id))
+        return await interaction.response.send_message(phrases["no_user_in_db"].format(member.id))
     elif org.id in [user_org.org.org_id for user_org in user.orgs]:
-        return await ctx.send(phrases["already_registered"].format(member.id, org.id))
+        return await interaction.response.send_message(phrases["already_registered"].format(member.id, org.id))
     user_org = database.OrgPermissions(database.get_org(org.id), 1)
     user.orgs.append(user_org)
     database.update_user(user)
-    await member.add_roles(ctx.guild.get_role(org.id))
-    await ctx.send(phrases["org_joined"].format(user.user_id, user_org.org.org_id))
+    await member.add_roles(interaction.guild.get_role(org.id))
+    await interaction.response.send_message(phrases["org_joined"].format(user.user_id, user_org.org.org_id))
 
 
-@bot.command()
-async def leave(ctx, member: Member, org: Role):
+@bot.tree.command()
+async def leave(interaction: Interaction, member: Member, org: Role):
     user = database.get_user(member.id)
     if not user:
-        return await ctx.send(phrases["no_user_in_db"].format(member.id))
+        return await interaction.response.send_message(phrases["no_user_in_db"].format(member.id))
     deleted_org = next((user_org for user_org in user.orgs), None)
     if not deleted_org:
-        return await ctx.send(phrases["not_org_member"].format(member.id, org.id))
+        return await interaction.response.send_message(phrases["not_org_member"].format(member.id, org.id))
     database.delete_user_org(deleted_org, user.user_id)
     await member.remove_roles(org)
-    await ctx.send(phrases["org_left"].format(user.user_id, org.id))
+    await interaction.response.send_message(phrases["org_left"].format(user.user_id, org.id))
 
 
-@bot.group()
-@commands.has_guild_permissions(administrator=True)
-async def register(ctx):
-    if not ctx.invoked_subcommand:
-        await ctx.send(phrases["invalid_subcommand"].format(_PREFIX, "register", _PREFIX, "register"))
+class RegisterCommands(Enum):
+    guild = 0
+    admin = 1
 
 
-@register.command(name="guild", aliases=["server"])
-async def _guild(ctx):
+@bot.tree.command()
+async def register(interaction: Interaction, subcommand: RegisterCommands):
+    if subcommand == RegisterCommands.guild:
+        await _register_guild(interaction)
+    elif subcommand == RegisterCommands.admin:
+        await _register_admin(interaction)
+
+
+async def _register_guild(interaction: Interaction):
     if "guild_id" in settings:
-        await ctx.send(phrases["another_guild_registered"].format(settings["guild_id"]) + " " +
-                       phrases["re_register_guild"].format(_PREFIX, "register guild", _PREFIX, "unregister guild"))
+        await interaction.response.send_message(phrases["another_guild_registered"].format(settings["guild_id"]) + " " +
+                               phrases["re_register_guild"].format(_PREFIX, "register guild", _PREFIX, "unregister guild"))
     else:
-        settings["guild_id"] = ctx.guild.id
+        settings["guild_id"] = interaction.guild.id
         with open("persistence/settings.json", "w", encoding="utf-8") as settings_out:
             json.dump(settings, settings_out)
-        await ctx.send(phrases["guild_registered"])
+        await interaction.response.send_message(phrases["guild_registered"])
 
 
-@register.command(name="admin", aliases=["channel"])
-@is_correct_guild()
-async def _admin(ctx):
-    settings["admin_channel_id"] = ctx.channel.id
+async def _register_admin(interaction: Interaction):
+    settings["admin_channel_id"] = interaction.channel.id
     with open("persistence/settings.json", "w", encoding="utf-8") as settings_out:
         json.dump(settings, settings_out)
-    await ctx.send(phrases["admin_channel_registered"].format(ctx.channel.id))
+    await interaction.response.send_message(phrases["admin_channel_registered"].format(interaction.channel.id))
 
 
-@bot.group()
-@commands.has_guild_permissions(administrator=True)
-async def unregister(ctx):
-    if not ctx.invoked_subcommand:
-        await ctx.send(phrases["invalid_subcommand"].format(_PREFIX, "unregister", _PREFIX, "unregister"))
+@bot.tree.command()
+async def unregister(interaction: Interaction, subcommand: RegisterCommands):
+    if subcommand == RegisterCommands.guild:
+        await _unregister_guild(interaction)
 
 
-@unregister.command(name="guild", alias=["server"])
-async def _guild(ctx):
-    if "guild_id" not in settings or settings["guild_id"] != ctx.guild.id:
-        await ctx.send(phrases["guild_not_registered"])
+async def _unregister_guild(interaction: Interaction):
+    if "guild_id" not in settings or settings["guild_id"] != interaction.guild.id:
+        await interaction.response.send_message(phrases["guild_not_registered"])
     else:
         settings.pop("guild_id")
         settings.pop("admin_channel_id")
         with open("persistence/settings.json", "w", encoding="utf-8") as settings_out:
             json.dump(settings, settings_out)
-        await ctx.send(phrases["guild_unregistered"])
+        await interaction.response.send_message(phrases["guild_unregistered"])
 
 
-def permission(argument: str):
-    try:
-        numerical = int(argument)
-        if numerical in (1, 2, 3):
-            return numerical
-        else:
-            raise commands.ConversionError(phrases["invalid_permission"].format(_USER_ROLE_NAMES, _ADMIN_ROLE_NAMES,
-                                                                                _MODERATOR_ROLE_NAMES),
-                                           argument)
-    except ValueError:
-        pass
-
-    if argument.lower() in _ADMIN_ROLE_NAMES:
-        return 3
-    elif argument.lower() in _MODERATOR_ROLE_NAMES:
-        return 2
-    elif argument.lower() in _USER_ROLE_NAMES:
-        return 1
-    raise commands.ConversionError(phrases["invalid_permission"].format(_USER_ROLE_NAMES, _ADMIN_ROLE_NAMES,
-                                                                        _MODERATOR_ROLE_NAMES),
-                                   argument)
+class Permissions(Enum):
+    admin = 3
+    moderator = 2
+    user = 1
 
 
-async def set_channel_permissions(ctx, member, permission_level):
-    admin_channel = ctx.guild.get_channel(settings["admin_channel_id"])
+async def set_channel_permissions(guild: Guild, member: Member, permission_level: int):
+    admin_channel = guild.get_channel(settings["admin_channel_id"])
     if permission_level < 2:
         return await admin_channel.set_permissions(member, overwrite=None)
     await admin_channel.set_permissions(member, read_messages=True, send_messages=True)
 
 
-@bot.group()
-@is_admin_channel()
-@commands.check_any(commands.has_guild_permissions(administrator=True), is_bot_admin())
-async def permissions(ctx, member: Member, org_role: Role, permission_level: permission):
+@bot.tree.command()
+async def permissions(interaction: Interaction, member: Member, org_role: Role, permission_level: Permissions):
+    permission_level = permission_level.value
     org = database.get_org(org_role.id)
     if not org:
-        return await ctx.send(phrases["role_is_not_org"].format(org_role.name))
+        return await interaction.response.send_message(phrases["role_is_not_org"].format(org_role.name))
     user = database.get_user(member.id)
     if not user:
-        return await ctx.send(phrases["no_user_in_db"].format(member.id))
+        return await interaction.response.send_message(phrases["no_user_in_db"].format(member.id))
     user_org = next((org_permissions for org_permissions in user.orgs if org_permissions.org.org_id == org.org_id),
                     None)
     if not user_org:
-        return await ctx.send(phrases["user_not_org_member"].format(member.id, user_org.org.org_id))
+        return await interaction.response.send_message(phrases["user_not_org_member"].format(member.id, user_org.org.org_id))
     max_permissions = max(permission_level, *[org_permissions.permission_level for org_permissions in user.orgs])
-    await set_channel_permissions(ctx, member, max_permissions)
+    await set_channel_permissions(interaction.guild, member, max_permissions)
     user_org.permission_level = permission_level
     database.update_user(user)
-    await ctx.send(phrases["permissions_updated"].format(member.id, org.org_id,
-                                                         _PERMISSION_LEVEL_MAPPING[permission_level]))
+    await interaction.response.send_message(phrases["permissions_updated"].format(member.id, org.org_id,
+                                                                 _PERMISSION_LEVEL_MAPPING[permission_level]))
 
 
 if __name__ == '__main__':
     database.init_databases()
     token = os.getenv("TOKEN", None)
-    if token == None:
+    if token is None:
         with open("token.txt", "r", encoding="utf-8") as token_file:
             token = token_file.readline()
     bot.run(token)

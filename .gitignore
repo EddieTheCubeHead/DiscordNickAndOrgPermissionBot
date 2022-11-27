@@ -1,5 +1,5 @@
 /token.txt
-/bot_db.sqlite
+/persistence/bot_db.sqlite
 /settings.json
 /venv/
 /.idea/
