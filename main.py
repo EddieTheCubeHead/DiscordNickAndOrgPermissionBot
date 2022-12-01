@@ -4,8 +4,8 @@ from enum import Enum
 from typing import List
 
 import discord
-from discord import Member, Role, Client, Intents, Interaction, Guild, AppCommandOptionType
-from discord.app_commands import CommandTree, describe, Transformer, Choice, TransformerError
+from discord import Member, Role, Client, Intents, Interaction, Guild
+from discord.app_commands import CommandTree, describe, Transformer, Choice
 import discord.app_commands
 
 import database
@@ -98,17 +98,6 @@ def is_bot_moderator():
 def is_admin_channel():
     async def predicate(interaction: Interaction):
         return "admin_channel_id" in settings and interaction.channel.id == settings["admin_channel_id"]
-    return discord.app_commands.check(predicate)
-
-
-def is_correct_guild():
-    async def predicate(interaction: Interaction):
-        if interaction.guild.id == settings["guild_id"]:
-            return True
-        else:
-            message = phrases["wrong_guild"] + " " + \
-                      phrases["re_register_guild"].format("/", "register guild", "/", "unregister guild")
-            await interaction.response.send_message(message)
     return discord.app_commands.check(predicate)
 
 

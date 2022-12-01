@@ -78,15 +78,6 @@ class User:
         self._user_id = user_id
 
     @property
-    def member_id(self):
-        return self._member_id
-
-    @member_id.setter
-    def member_id(self, member_id: int):
-        self.status = DbEntryStatus.CHANGED
-        self._member_id = member_id
-
-    @property
     def nick(self):
         return self._nick
 
