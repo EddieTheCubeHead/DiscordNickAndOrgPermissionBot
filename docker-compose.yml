@@ -5,5 +5,6 @@ services:
     hostname: bot
     environment:
       - TOKEN=<insert secret here>
+      - GUILD=<insert guild id here>
     volumes:
       - ./persistence:/app/persistence

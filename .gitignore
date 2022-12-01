@@ -1,6 +1,7 @@
-/token.txt
-/bot_db.sqlite
 /settings.json
 /venv/
 /.idea/
 /persistence
+/TOKEN.txt
+/GUILD.txt
+/test/
