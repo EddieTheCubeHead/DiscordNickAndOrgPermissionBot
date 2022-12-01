@@ -1,7 +1,9 @@
 import os
 import sqlite3
 from enum import Enum
-from typing import Optional, Union
+from typing import Union
+
+from discord import Role
 
 con = sqlite3.connect("persistence/bot_db.sqlite")
 
@@ -17,6 +19,7 @@ class Org:
         self._org_id = org_id
         self._name = name
         self.status = status
+        self.role: Role | None = None
 
     def __repr__(self):
         return f"Org '{self.name}', ID: {self.org_id}"
@@ -75,6 +78,15 @@ class User:
         self._user_id = user_id
 
     @property
+    def member_id(self):
+        return self._member_id
+
+    @member_id.setter
+    def member_id(self, member_id: int):
+        self.status = DbEntryStatus.CHANGED
+        self._member_id = member_id
+
+    @property
     def nick(self):
         return self._nick
 
@@ -90,19 +102,20 @@ def init_databases():
             con.execute(sql_script.read())
 
 
-def add_user(member_id: int):
-    con.execute("INSERT INTO Users (ID) VALUES (?)", (member_id,))
+def add_user(user_id: int):
+    con.execute("INSERT INTO Users (ID) VALUES (?)", (user_id,))
     con.commit()
 
 
-def get_user(member_id: int) -> Optional[User]:
-    rows = con.execute("SELECT ID, Nick FROM Users WHERE Users.ID = ?", (member_id,))
-    data = rows.fetchone()
-    if data:
-        org_data = con.execute("SELECT OrgID, PermissionLevel FROM OrgUsers WHERE OrgUsers.UserID = ?", (member_id,)).fetchall()
-        orgs = [get_org(data_point[0]) for data_point in org_data]
-        org_permissions = [OrgPermissions(org, data_point[1]) for org, data_point in zip(orgs, org_data)]
-        return User(*data, *org_permissions)
+def get_user(member_id: int) -> User:
+    if con.execute("SELECT EXISTS(SELECT 1 FROM Users WHERE Users.ID = ?)", (member_id,)).fetchone()[0] == 0:
+        add_user(member_id)
+    data = con.execute("SELECT ID, Nick FROM Users WHERE Users.ID = ?", (member_id,)).fetchone()
+    org_data = con.execute("SELECT OrgID, PermissionLevel FROM OrgUsers WHERE OrgUsers.UserID = ?", (member_id,))\
+        .fetchall()
+    orgs = [get_org(data_point[0]) for data_point in org_data]
+    org_permissions = [OrgPermissions(org, data_point[1], DbEntryStatus.UNCHANGED) for org, data_point in zip(orgs, org_data)]
+    return User(*data, *org_permissions)
 
 
 def update_user(user: User):
