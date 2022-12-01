@@ -88,10 +88,11 @@ def is_bot_admin():
     return discord.app_commands.check(predicate)
 
 
-def is_bot_moderator():
+def is_server_admin():
     async def predicate(interaction: Interaction):
-        user = database.get_user(interaction.user.id)
-        return 2 in [user_permissions.permission_level for user_permissions in user.orgs]
+        if interaction.user.guild_permissions.administrator:
+            return True
+        return False
     return discord.app_commands.check(predicate)
 
 
@@ -167,7 +168,7 @@ class ApprovableOrganisation(OrganisationBase):
         return [org for org in orgs if user_in_org(org.value, user, max_level=0)]
 
 
-@bot.tree.command(description=phrases["add_org"])
+@bot.tree.command(name="add-org", description=phrases["add_org"])
 @describe(org_name=phrases["org_name"])
 @is_bot_admin()
 async def add_org(interaction: Interaction, *, org_name: str):
@@ -298,11 +299,11 @@ async def send_join_application(interaction: Interaction, org: database.Org, nam
     await interaction.response.send_message(message, ephemeral=True)
 
 
-@bot.tree.command(description=phrases["add"])
+@bot.tree.command(name="add-to-org", description=phrases["add"])
 @describe(member=phrases["adding_member"], org=phrases["adding_org"])
 @is_bot_admin()
-async def add(interaction: Interaction, member: Member,
-              org: discord.app_commands.Transform[database.Org, AddableOrganisation]):
+async def add_to_org(interaction: Interaction, member: Member,
+                     org: discord.app_commands.Transform[database.Org, AddableOrganisation]):
     user = database.get_user(member.id)
     role: Role = org.role
     if role.id in [user_org.org.org_id for user_org in user.orgs]:
@@ -316,11 +317,11 @@ async def add(interaction: Interaction, member: Member,
                                             ephemeral=True)
 
 
-@bot.tree.command(description=phrases["leave"])
+@bot.tree.command(name="remove-from-org", description=phrases["leave"])
 @describe(member=phrases["leaving_member"], org=phrases["leaving_org"])
 @is_bot_admin()
-async def remove(interaction: Interaction, member: Member,
-                 org: discord.app_commands.Transform[database.Org, RemovableOrganisation]):
+async def remove_from_org(interaction: Interaction, member: Member,
+                          org: discord.app_commands.Transform[database.Org, RemovableOrganisation]):
     user = database.get_user(member.id)
     role: Role = org.role
     deleted_org = next((user_org for user_org in user.orgs), None)
@@ -338,6 +339,7 @@ class RegisterCommands(Enum):
 
 
 @bot.tree.command(name="register-admin-channel", description=phrases["register"])
+@is_server_admin()
 async def register_admin_channel(interaction: Interaction):
     settings["admin_channel_id"] = interaction.channel.id
     with open("persistence/settings.json", "w", encoding="utf-8") as settings_out:
